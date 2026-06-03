@@ -10,20 +10,47 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as VerbsRouteImport } from './routes/verbs'
+import { Route as StatisticsRouteImport } from './routes/statistics'
 import { Route as SettingsRouteImport } from './routes/settings'
+import { Route as SearchRouteImport } from './routes/search'
+import { Route as ReviewRouteImport } from './routes/review'
 import { Route as NotesRouteImport } from './routes/notes'
 import { Route as LanguagesRouteImport } from './routes/languages'
+import { Route as ExercisesRouteImport } from './routes/exercises'
 import { Route as DictionaryRouteImport } from './routes/dictionary'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as WordIdRouteImport } from './routes/word.$id'
+import { Route as VerbIdRouteImport } from './routes/verb.$id'
+import { Route as NoteNewRouteImport } from './routes/note.new'
+import { Route as NoteIdRouteImport } from './routes/note.$id'
+import { Route as LanguageNewRouteImport } from './routes/language.new'
+import { Route as LanguageIdRouteImport } from './routes/language.$id'
+import { Route as ExercisesLearnRouteImport } from './routes/exercises.learn'
+import { Route as ExerciseTypeRouteImport } from './routes/exercise.$type'
 
 const VerbsRoute = VerbsRouteImport.update({
   id: '/verbs',
   path: '/verbs',
   getParentRoute: () => rootRouteImport,
 } as any)
+const StatisticsRoute = StatisticsRouteImport.update({
+  id: '/statistics',
+  path: '/statistics',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const SettingsRoute = SettingsRouteImport.update({
   id: '/settings',
   path: '/settings',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SearchRoute = SearchRouteImport.update({
+  id: '/search',
+  path: '/search',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ReviewRoute = ReviewRouteImport.update({
+  id: '/review',
+  path: '/review',
   getParentRoute: () => rootRouteImport,
 } as any)
 const NotesRoute = NotesRouteImport.update({
@@ -36,6 +63,11 @@ const LanguagesRoute = LanguagesRouteImport.update({
   path: '/languages',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ExercisesRoute = ExercisesRouteImport.update({
+  id: '/exercises',
+  path: '/exercises',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const DictionaryRoute = DictionaryRouteImport.update({
   id: '/dictionary',
   path: '/dictionary',
@@ -46,60 +78,189 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const WordIdRoute = WordIdRouteImport.update({
+  id: '/word/$id',
+  path: '/word/$id',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const VerbIdRoute = VerbIdRouteImport.update({
+  id: '/verb/$id',
+  path: '/verb/$id',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const NoteNewRoute = NoteNewRouteImport.update({
+  id: '/note/new',
+  path: '/note/new',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const NoteIdRoute = NoteIdRouteImport.update({
+  id: '/note/$id',
+  path: '/note/$id',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const LanguageNewRoute = LanguageNewRouteImport.update({
+  id: '/language/new',
+  path: '/language/new',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const LanguageIdRoute = LanguageIdRouteImport.update({
+  id: '/language/$id',
+  path: '/language/$id',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ExercisesLearnRoute = ExercisesLearnRouteImport.update({
+  id: '/learn',
+  path: '/learn',
+  getParentRoute: () => ExercisesRoute,
+} as any)
+const ExerciseTypeRoute = ExerciseTypeRouteImport.update({
+  id: '/exercise/$type',
+  path: '/exercise/$type',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/dictionary': typeof DictionaryRoute
+  '/exercises': typeof ExercisesRouteWithChildren
   '/languages': typeof LanguagesRoute
   '/notes': typeof NotesRoute
+  '/review': typeof ReviewRoute
+  '/search': typeof SearchRoute
   '/settings': typeof SettingsRoute
+  '/statistics': typeof StatisticsRoute
   '/verbs': typeof VerbsRoute
+  '/exercise/$type': typeof ExerciseTypeRoute
+  '/exercises/learn': typeof ExercisesLearnRoute
+  '/language/$id': typeof LanguageIdRoute
+  '/language/new': typeof LanguageNewRoute
+  '/note/$id': typeof NoteIdRoute
+  '/note/new': typeof NoteNewRoute
+  '/verb/$id': typeof VerbIdRoute
+  '/word/$id': typeof WordIdRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/dictionary': typeof DictionaryRoute
+  '/exercises': typeof ExercisesRouteWithChildren
   '/languages': typeof LanguagesRoute
   '/notes': typeof NotesRoute
+  '/review': typeof ReviewRoute
+  '/search': typeof SearchRoute
   '/settings': typeof SettingsRoute
+  '/statistics': typeof StatisticsRoute
   '/verbs': typeof VerbsRoute
+  '/exercise/$type': typeof ExerciseTypeRoute
+  '/exercises/learn': typeof ExercisesLearnRoute
+  '/language/$id': typeof LanguageIdRoute
+  '/language/new': typeof LanguageNewRoute
+  '/note/$id': typeof NoteIdRoute
+  '/note/new': typeof NoteNewRoute
+  '/verb/$id': typeof VerbIdRoute
+  '/word/$id': typeof WordIdRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/dictionary': typeof DictionaryRoute
+  '/exercises': typeof ExercisesRouteWithChildren
   '/languages': typeof LanguagesRoute
   '/notes': typeof NotesRoute
+  '/review': typeof ReviewRoute
+  '/search': typeof SearchRoute
   '/settings': typeof SettingsRoute
+  '/statistics': typeof StatisticsRoute
   '/verbs': typeof VerbsRoute
+  '/exercise/$type': typeof ExerciseTypeRoute
+  '/exercises/learn': typeof ExercisesLearnRoute
+  '/language/$id': typeof LanguageIdRoute
+  '/language/new': typeof LanguageNewRoute
+  '/note/$id': typeof NoteIdRoute
+  '/note/new': typeof NoteNewRoute
+  '/verb/$id': typeof VerbIdRoute
+  '/word/$id': typeof WordIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
     | '/dictionary'
+    | '/exercises'
     | '/languages'
     | '/notes'
+    | '/review'
+    | '/search'
     | '/settings'
+    | '/statistics'
     | '/verbs'
+    | '/exercise/$type'
+    | '/exercises/learn'
+    | '/language/$id'
+    | '/language/new'
+    | '/note/$id'
+    | '/note/new'
+    | '/verb/$id'
+    | '/word/$id'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/dictionary' | '/languages' | '/notes' | '/settings' | '/verbs'
+  to:
+    | '/'
+    | '/dictionary'
+    | '/exercises'
+    | '/languages'
+    | '/notes'
+    | '/review'
+    | '/search'
+    | '/settings'
+    | '/statistics'
+    | '/verbs'
+    | '/exercise/$type'
+    | '/exercises/learn'
+    | '/language/$id'
+    | '/language/new'
+    | '/note/$id'
+    | '/note/new'
+    | '/verb/$id'
+    | '/word/$id'
   id:
     | '__root__'
     | '/'
     | '/dictionary'
+    | '/exercises'
     | '/languages'
     | '/notes'
+    | '/review'
+    | '/search'
     | '/settings'
+    | '/statistics'
     | '/verbs'
+    | '/exercise/$type'
+    | '/exercises/learn'
+    | '/language/$id'
+    | '/language/new'
+    | '/note/$id'
+    | '/note/new'
+    | '/verb/$id'
+    | '/word/$id'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   DictionaryRoute: typeof DictionaryRoute
+  ExercisesRoute: typeof ExercisesRouteWithChildren
   LanguagesRoute: typeof LanguagesRoute
   NotesRoute: typeof NotesRoute
+  ReviewRoute: typeof ReviewRoute
+  SearchRoute: typeof SearchRoute
   SettingsRoute: typeof SettingsRoute
+  StatisticsRoute: typeof StatisticsRoute
   VerbsRoute: typeof VerbsRoute
+  ExerciseTypeRoute: typeof ExerciseTypeRoute
+  LanguageIdRoute: typeof LanguageIdRoute
+  LanguageNewRoute: typeof LanguageNewRoute
+  NoteIdRoute: typeof NoteIdRoute
+  NoteNewRoute: typeof NoteNewRoute
+  VerbIdRoute: typeof VerbIdRoute
+  WordIdRoute: typeof WordIdRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -111,11 +272,32 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof VerbsRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/statistics': {
+      id: '/statistics'
+      path: '/statistics'
+      fullPath: '/statistics'
+      preLoaderRoute: typeof StatisticsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/settings': {
       id: '/settings'
       path: '/settings'
       fullPath: '/settings'
       preLoaderRoute: typeof SettingsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/search': {
+      id: '/search'
+      path: '/search'
+      fullPath: '/search'
+      preLoaderRoute: typeof SearchRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/review': {
+      id: '/review'
+      path: '/review'
+      fullPath: '/review'
+      preLoaderRoute: typeof ReviewRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/notes': {
@@ -132,6 +314,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof LanguagesRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/exercises': {
+      id: '/exercises'
+      path: '/exercises'
+      fullPath: '/exercises'
+      preLoaderRoute: typeof ExercisesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/dictionary': {
       id: '/dictionary'
       path: '/dictionary'
@@ -146,16 +335,95 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/word/$id': {
+      id: '/word/$id'
+      path: '/word/$id'
+      fullPath: '/word/$id'
+      preLoaderRoute: typeof WordIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/verb/$id': {
+      id: '/verb/$id'
+      path: '/verb/$id'
+      fullPath: '/verb/$id'
+      preLoaderRoute: typeof VerbIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/note/new': {
+      id: '/note/new'
+      path: '/note/new'
+      fullPath: '/note/new'
+      preLoaderRoute: typeof NoteNewRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/note/$id': {
+      id: '/note/$id'
+      path: '/note/$id'
+      fullPath: '/note/$id'
+      preLoaderRoute: typeof NoteIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/language/new': {
+      id: '/language/new'
+      path: '/language/new'
+      fullPath: '/language/new'
+      preLoaderRoute: typeof LanguageNewRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/language/$id': {
+      id: '/language/$id'
+      path: '/language/$id'
+      fullPath: '/language/$id'
+      preLoaderRoute: typeof LanguageIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/exercises/learn': {
+      id: '/exercises/learn'
+      path: '/learn'
+      fullPath: '/exercises/learn'
+      preLoaderRoute: typeof ExercisesLearnRouteImport
+      parentRoute: typeof ExercisesRoute
+    }
+    '/exercise/$type': {
+      id: '/exercise/$type'
+      path: '/exercise/$type'
+      fullPath: '/exercise/$type'
+      preLoaderRoute: typeof ExerciseTypeRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
+
+interface ExercisesRouteChildren {
+  ExercisesLearnRoute: typeof ExercisesLearnRoute
+}
+
+const ExercisesRouteChildren: ExercisesRouteChildren = {
+  ExercisesLearnRoute: ExercisesLearnRoute,
+}
+
+const ExercisesRouteWithChildren = ExercisesRoute._addFileChildren(
+  ExercisesRouteChildren,
+)
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   DictionaryRoute: DictionaryRoute,
+  ExercisesRoute: ExercisesRouteWithChildren,
   LanguagesRoute: LanguagesRoute,
   NotesRoute: NotesRoute,
+  ReviewRoute: ReviewRoute,
+  SearchRoute: SearchRoute,
   SettingsRoute: SettingsRoute,
+  StatisticsRoute: StatisticsRoute,
   VerbsRoute: VerbsRoute,
+  ExerciseTypeRoute: ExerciseTypeRoute,
+  LanguageIdRoute: LanguageIdRoute,
+  LanguageNewRoute: LanguageNewRoute,
+  NoteIdRoute: NoteIdRoute,
+  NoteNewRoute: NoteNewRoute,
+  VerbIdRoute: VerbIdRoute,
+  WordIdRoute: WordIdRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

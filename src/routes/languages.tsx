@@ -1,197 +1,130 @@
-import { createFileRoute } from "@tanstack/react-router";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import {
-  listLanguages,
-  upsertLanguage,
-  deleteLanguage,
-  type Language,
-} from "@/lib/db";
-import { useState } from "react";
-import { Pencil, Trash2, X } from "lucide-react";
-import { toast } from "sonner";
-import { MobileHeader } from "@/components/mobile/MobileHeader";
-import { AppShell } from "@/components/mobile/AppShell";
-import { FAB } from "@/components/mobile/FAB";
-import { Drawer, DrawerContent, DrawerClose } from "@/components/ui/drawer";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { useQuery } from "@tanstack/react-query";
+import { Plus } from "lucide-react";
+import { Screen } from "@/components/mobile/Screen";
+import { LangAvatar, ProgressBar, ScreenHeader } from "@/components/mobile/primitives";
+import { useSelectedLanguage } from "@/components/mobile/LanguagePicker";
+import { listLanguages, getLanguageProgress, type Language } from "@/lib/db";
 
 export const Route = createFileRoute("/languages")({
   component: LanguagesPage,
 });
 
-const empty = { name: "", flag: "", alphabet: "", translation_language: "Français" };
-
 function LanguagesPage() {
-  const qc = useQueryClient();
   const { data: langs = [] } = useQuery({ queryKey: ["languages"], queryFn: listLanguages });
+  const { langId, setLangId } = useSelectedLanguage();
 
-  const [open, setOpen] = useState(false);
-  const [editing, setEditing] = useState<Language | null>(null);
-  const [form, setForm] = useState({ ...empty });
+  return (
+    <Screen>
+      <ScreenHeader
+        title="Mes langues"
+        avatar={
+          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-muted" />
+        }
+        right={
+          <Link
+            to="/language/new"
+            aria-label="Ajouter une langue"
+            className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground transition active:scale-95"
+          >
+            <Plus className="h-5 w-5" />
+          </Link>
+        }
+      />
 
-  function openNew() {
-    setEditing(null);
-    setForm({ ...empty });
-    setOpen(true);
-  }
-  function openEdit(l: Language) {
-    setEditing(l);
-    setForm({
-      name: l.name,
-      flag: l.flag ?? "",
-      alphabet: l.alphabet ?? "",
-      translation_language: l.translation_language,
-    });
-    setOpen(true);
-  }
+      {langs.length === 0 ? (
+        <EmptyState />
+      ) : (
+        <div className="mt-4 space-y-4">
+          {langs.map((l) => (
+            <LanguageCard
+              key={l.id}
+              language={l}
+              active={l.id === langId}
+              onActivate={() => setLangId(l.id)}
+            />
+          ))}
 
-  async function save(e: React.FormEvent) {
-    e.preventDefault();
-    await upsertLanguage({
-      id: editing?.id,
-      name: form.name.trim(),
-      flag: form.flag.trim() || null,
-      alphabet: form.alphabet.trim() || null,
-      translation_language: form.translation_language.trim() || "Français",
-    });
-    setOpen(false);
-    qc.invalidateQueries({ queryKey: ["languages"] });
-    qc.invalidateQueries({ queryKey: ["stats"] });
-    toast.success(editing ? "Langue modifiée" : "Langue créée");
-  }
+          <Link
+            to="/language/new"
+            className="flex h-[72px] w-full items-center justify-center rounded-3xl border border-dashed border-border text-base font-semibold text-muted-foreground transition active:scale-[0.99]"
+          >
+            Ajouter une langue
+          </Link>
+        </div>
+      )}
+    </Screen>
+  );
+}
 
-  async function remove(l: Language) {
-    if (!confirm(`Supprimer ${l.name} et toutes ses données ?`)) return;
-    await deleteLanguage(l.id);
-    qc.invalidateQueries();
-    toast.success("Langue supprimée");
+function LanguageCard({
+  language,
+  active,
+  onActivate,
+}: {
+  language: Language;
+  active: boolean;
+  onActivate: () => void;
+}) {
+  const navigate = useNavigate();
+  const { data: progress } = useQuery({
+    queryKey: ["langProgress", language.id],
+    queryFn: () => getLanguageProgress(language.id),
+  });
+
+  const percent = progress?.percent ?? 0;
+  const words = progress?.words ?? 0;
+
+  // Tapping a non-active card makes it active and opens its detail.
+  // Tapping the already-active card opens its detail directly.
+  function handleTap() {
+    if (!active) onActivate();
+    navigate({ to: "/language/$id", params: { id: language.id } });
   }
 
   return (
-    <>
-      <MobileHeader title="Langues" subtitle={`${langs.length} langue${langs.length > 1 ? "s" : ""}`} />
-      <AppShell>
-        <div className="px-5 pt-4 pb-10">
-          {!langs.length ? (
-            <div className="mt-16 flex flex-col items-center text-center">
-              <div className="text-6xl">🌐</div>
-              <p className="mt-4 text-sm text-muted-foreground">
-                Créez votre première langue pour commencer à enregistrer des mots.
-              </p>
-              <Button className="mt-6 rounded-full px-6" onClick={openNew}>
-                Créer une langue
-              </Button>
-            </div>
-          ) : (
-            <ul className="space-y-3">
-              {langs.map((l) => (
-                <li
-                  key={l.id}
-                  className="flex items-center gap-4 rounded-2xl border border-border bg-card p-4"
-                >
-                  <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-muted text-3xl">
-                    {l.flag || "🌐"}
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="truncate font-display text-xl leading-tight">{l.name}</div>
-                    <div className="truncate text-xs text-muted-foreground">
-                      {l.alphabet || "—"} · vers {l.translation_language}
-                    </div>
-                  </div>
-                  <button
-                    onClick={() => openEdit(l)}
-                    className="flex h-9 w-9 items-center justify-center rounded-full text-muted-foreground hover:bg-muted hover:text-foreground"
-                    aria-label="Modifier"
-                  >
-                    <Pencil className="h-4 w-4" />
-                  </button>
-                  <button
-                    onClick={() => remove(l)}
-                    className="flex h-9 w-9 items-center justify-center rounded-full text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-                    aria-label="Supprimer"
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
+    <button
+      type="button"
+      onClick={handleTap}
+      className="block w-full rounded-3xl bg-card p-5 text-left transition active:scale-[0.99]"
+    >
+      <div className="flex items-start gap-4">
+        <LangAvatar icon={language.icon || "🌐"} size="lg" variant="lime" />
+        <div className="min-w-0 flex-1">
+          <div className="truncate text-xl font-bold leading-tight">{language.name}</div>
+          <div className="mt-0.5 truncate text-sm text-muted-foreground">
+            {words} mot{words > 1 ? "s" : ""} enregistré{words > 1 ? "s" : ""}
+          </div>
         </div>
-      </AppShell>
+        {active && (
+          <span className="shrink-0 rounded-full bg-primary px-3 py-1.5 text-xs font-bold text-primary-foreground">
+            active
+          </span>
+        )}
+      </div>
 
-      {langs.length > 0 && <FAB onClick={openNew} label="Nouvelle langue" />}
+      <div className="mt-4 flex items-center gap-3">
+        <ProgressBar value={percent} className="flex-1" />
+        <span className="shrink-0 text-sm font-bold text-primary">{percent}%</span>
+      </div>
+    </button>
+  );
+}
 
-      <Drawer open={open} onOpenChange={setOpen}>
-        <DrawerContent>
-          <form onSubmit={save} className="mx-auto w-full max-w-md px-5 pb-6 pt-2">
-            <div className="mt-2 flex items-center justify-between">
-              <h2 className="font-display text-2xl">{editing ? "Modifier" : "Nouvelle"} langue</h2>
-              <DrawerClose asChild>
-                <button
-                  type="button"
-                  className="flex h-9 w-9 items-center justify-center rounded-full hover:bg-muted"
-                  aria-label="Fermer"
-                >
-                  <X className="h-5 w-5" />
-                </button>
-              </DrawerClose>
-            </div>
-
-            <div className="mt-5 space-y-4">
-              <div className="grid grid-cols-[1fr_96px] gap-3">
-                <div>
-                  <Label htmlFor="name">Nom</Label>
-                  <Input
-                    id="name"
-                    value={form.name}
-                    onChange={(e) => setForm({ ...form, name: e.target.value })}
-                    required
-                    autoFocus
-                    placeholder="Coréen"
-                    className="h-11"
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="flag">Drapeau</Label>
-                  <Input
-                    id="flag"
-                    value={form.flag}
-                    onChange={(e) => setForm({ ...form, flag: e.target.value })}
-                    placeholder="🇰🇷"
-                    maxLength={4}
-                    className="h-11 text-center text-xl"
-                  />
-                </div>
-              </div>
-              <div>
-                <Label htmlFor="alphabet">Alphabet</Label>
-                <Input
-                  id="alphabet"
-                  value={form.alphabet}
-                  onChange={(e) => setForm({ ...form, alphabet: e.target.value })}
-                  placeholder="Hangul"
-                  className="h-11"
-                />
-              </div>
-              <div>
-                <Label htmlFor="trans">Traduire vers</Label>
-                <Input
-                  id="trans"
-                  value={form.translation_language}
-                  onChange={(e) => setForm({ ...form, translation_language: e.target.value })}
-                  className="h-11"
-                />
-              </div>
-            </div>
-
-            <Button type="submit" className="mt-6 h-12 w-full rounded-full text-base">
-              {editing ? "Enregistrer" : "Créer"}
-            </Button>
-          </form>
-        </DrawerContent>
-      </Drawer>
-    </>
+function EmptyState() {
+  return (
+    <div className="mt-24 flex flex-col items-center text-center">
+      <div className="text-6xl">🌐</div>
+      <p className="mt-5 text-sm text-muted-foreground">
+        Aucune langue pour l'instant. Créez votre première langue pour commencer à enregistrer des
+        mots.
+      </p>
+      <Link
+        to="/language/new"
+        className="mt-6 inline-flex h-12 items-center justify-center rounded-full bg-primary px-6 font-bold text-primary-foreground transition active:scale-95"
+      >
+        Créer une langue
+      </Link>
+    </div>
   );
 }

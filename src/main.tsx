@@ -4,6 +4,9 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { RouterProvider, createRouter } from "@tanstack/react-router";
 import { routeTree } from "./routeTree.gen";
 import { Toaster } from "@/components/ui/sonner";
+import { getSettings } from "@/lib/db";
+import { applySettings } from "@/lib/theme";
+import { ensureSeed } from "@/lib/seed";
 import "./styles.css";
 
 const queryClient = new QueryClient({
@@ -11,6 +14,17 @@ const queryClient = new QueryClient({
     queries: { staleTime: 0, refetchOnWindowFocus: false, retry: 1 },
   },
 });
+
+// First-run demo seed (no-op if data already exists), then apply theme/accent
+// and refresh any queries that mounted before seeding finished.
+ensureSeed()
+  .catch(() => {})
+  .finally(() => {
+    getSettings()
+      .then(applySettings)
+      .catch(() => {});
+    queryClient.invalidateQueries();
+  });
 
 const router = createRouter({
   routeTree,

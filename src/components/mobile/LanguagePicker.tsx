@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { listLanguages, type Language } from "@/lib/db";
 import { Drawer, DrawerContent, DrawerTrigger } from "@/components/ui/drawer";
 import { ChevronDown, Check } from "lucide-react";
+import { LangAvatar } from "@/components/mobile/primitives";
 
 const STORAGE_KEY = "rs.selectedLanguageId";
 
@@ -44,9 +45,9 @@ type Props = {
   languages: Language[];
 };
 
+/** Compact chip (used in page headers): small lime avatar + name. */
 export function LanguagePicker({ current, onSelect, languages }: Props) {
   const [open, setOpen] = useState(false);
-
   if (!languages.length) return null;
 
   return (
@@ -54,19 +55,21 @@ export function LanguagePicker({ current, onSelect, languages }: Props) {
       <DrawerTrigger asChild>
         <button
           type="button"
-          className="inline-flex items-center gap-1.5 rounded-full bg-muted px-3 py-1.5 text-sm font-medium text-foreground"
+          className="inline-flex items-center gap-2 rounded-full bg-muted py-1.5 pl-1.5 pr-3 text-sm font-semibold text-foreground"
         >
-          <span className="text-base leading-none">{current?.flag || "🌐"}</span>
-          <span className="truncate max-w-[10ch]">{current?.name ?? "Choisir"}</span>
-          <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
+          <span className="flex h-7 w-7 items-center justify-center rounded-full bg-primary text-sm text-primary-foreground">
+            {current?.icon || "🌐"}
+          </span>
+          <span className="max-w-[10ch] truncate">{current?.name ?? "Choisir"}</span>
+          <ChevronDown className="h-4 w-4 text-muted-foreground" />
         </button>
       </DrawerTrigger>
       <DrawerContent>
-        <div className="mx-auto w-full max-w-md px-4 pb-6 pt-2">
-          <div className="mb-3 text-center text-xs uppercase tracking-wider text-muted-foreground">
+        <div className="mx-auto w-full max-w-md px-4 pb-8 pt-2">
+          <div className="mb-3 text-center text-xs font-semibold uppercase tracking-wider text-muted-foreground">
             Choisir une langue
           </div>
-          <ul className="space-y-1">
+          <ul className="space-y-1.5">
             {languages.map((l) => {
               const active = l.id === current?.id;
               return (
@@ -77,16 +80,16 @@ export function LanguagePicker({ current, onSelect, languages }: Props) {
                       onSelect(l.id);
                       setOpen(false);
                     }}
-                    className="flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left transition hover:bg-muted"
+                    className="flex w-full items-center gap-3 rounded-2xl bg-muted/60 px-3 py-3 text-left transition active:bg-muted"
                   >
-                    <span className="text-2xl">{l.flag || "🌐"}</span>
+                    <LangAvatar icon={l.icon || "🌐"} size="sm" variant={active ? "lime" : "muted"} />
                     <span className="flex-1">
-                      <span className="block font-medium">{l.name}</span>
+                      <span className="block font-semibold">{l.name}</span>
                       <span className="block text-xs text-muted-foreground">
-                        {l.alphabet || "—"} · vers {l.translation_language}
+                        {l.alphabet || "—"} · {l.translation_language}
                       </span>
                     </span>
-                    {active && <Check className="h-4 w-4 text-primary" />}
+                    {active && <Check className="h-5 w-5 text-primary" />}
                   </button>
                 </li>
               );
