@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">RosettaStone</string>
+    <string name="title_activity_main">RosettaStone</string>
+    <string name="package_name">com.rosettastone.app</string>
+    <string name="custom_url_scheme">com.rosettastone.app</string>
+</resources>
