@@ -7,7 +7,8 @@ import { ScreenHeader, LangAvatar, BigButton, Pill } from "@/components/mobile/p
 import { Switch } from "@/components/ui/switch";
 import { useSelectedLanguage } from "@/components/mobile/LanguagePicker";
 import { ExerciseEmpty } from "@/components/exercise/ExerciseEmpty";
-import { listWords, successRate, type ExerciseDirection, type Word } from "@/lib/db";
+import { listWords, successRate, WORD_FORMS, type ExerciseDirection, type Word } from "@/lib/db";
+import type { ReviewType } from "@/routes/exercise.$type";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/exercises/learn")({
@@ -18,8 +19,13 @@ type CountOption = 10 | 20 | 30 | "all";
 
 const DIRECTIONS: { key: ExerciseDirection; label: string }[] = [
   { key: "original->translation", label: "Hangeul → Français" },
-  { key: "romanization->translation", label: "Romanisation → Français" },
   { key: "translation->original", label: "Français → Hangeul" },
+];
+
+const EXERCISE_TYPES: { key: ReviewType; label: string; subtitle: string }[] = [
+  { key: "traduction", label: "Traduction écrite", subtitle: "Tape la réponse" },
+  { key: "qcm", label: "QCM", subtitle: "4 réponses possibles" },
+  { key: "tracage", label: "Tracé hangeul", subtitle: "Dessine la syllabe (coréen)" },
 ];
 
 function LearnConfig() {
@@ -29,8 +35,12 @@ function LearnConfig() {
   const [count, setCount] = useState<CountOption>(20);
   const [dirs, setDirs] = useState<Record<ExerciseDirection, boolean>>({
     "original->translation": true,
-    "romanization->translation": true,
     "translation->original": true,
+  });
+  const [types, setTypes] = useState<Record<ReviewType, boolean>>({
+    traduction: true,
+    qcm: true,
+    tracage: true,
   });
 
   const { data: words = [] } = useQuery({
@@ -75,15 +85,16 @@ function LearnConfig() {
   }
 
   const selectedDirs = DIRECTIONS.filter((d) => dirs[d.key]).map((d) => d.key);
+  const selectedTypes = EXERCISE_TYPES.filter((t) => types[t.key]).map((t) => t.key);
   const total = count === "all" ? words.length : Math.min(count, words.length);
 
   // A few most-fragile words (lowest success rate, reviewed first).
   const fragile = [...words]
-    .filter((w) => w.srs.reviews > 0)
+    .filter((w) => WORD_FORMS.some((f) => w.srs[f].reviews > 0))
     .sort((a, b) => successRate(a) - successRate(b))
     .slice(0, 3);
 
-  const canStart = selectedDirs.length > 0 && total > 0;
+  const canStart = selectedDirs.length > 0 && selectedTypes.length > 0 && total > 0;
 
   function toggleDir(key: ExerciseDirection) {
     setDirs((prev) => {
@@ -94,11 +105,24 @@ function LearnConfig() {
     });
   }
 
+  function toggleType(key: ReviewType) {
+    setTypes((prev) => {
+      const next = { ...prev, [key]: !prev[key] };
+      if (!Object.values(next).some(Boolean)) return prev;
+      return next;
+    });
+  }
+
   function commencer() {
     navigate({
       to: "/exercise/$type",
       params: { type: "review" },
-      search: { count: total, dir: selectedDirs[0], dirs: selectedDirs },
+      search: {
+        count: total,
+        dir: selectedDirs[0],
+        dirs: selectedDirs,
+        types: selectedTypes,
+      },
     });
   }
 
@@ -131,6 +155,23 @@ function LearnConfig() {
           >
             <span className="font-semibold">{d.label}</span>
             <Switch checked={dirs[d.key]} onCheckedChange={() => toggleDir(d.key)} />
+          </label>
+        ))}
+      </div>
+
+      {/* Types d'exercices */}
+      <h2 className="mt-7 text-lg font-bold">Types d'exercices</h2>
+      <div className="mt-3 space-y-2.5">
+        {EXERCISE_TYPES.map((t) => (
+          <label
+            key={t.key}
+            className="flex cursor-pointer items-center justify-between rounded-2xl bg-card px-5 py-4"
+          >
+            <span className="min-w-0 flex-1">
+              <span className="block font-semibold">{t.label}</span>
+              <span className="block text-sm text-muted-foreground">{t.subtitle}</span>
+            </span>
+            <Switch checked={types[t.key]} onCheckedChange={() => toggleType(t.key)} />
           </label>
         ))}
       </div>

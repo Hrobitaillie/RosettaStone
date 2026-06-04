@@ -8,10 +8,13 @@ import {
   listWords,
   deleteWord,
   toggleWordFavorite,
-  successRate,
+  knowledgeScore,
+  WORD_FORMS,
   type Word,
+  type WordForm,
   type WordMeaning,
 } from "@/lib/db";
+import { splitSyllables } from "@/lib/hangul";
 import { PASTEL_CYCLE } from "@/lib/categories";
 import { Screen } from "@/components/mobile/Screen";
 import { Card, IconButton, PastelCard, Pill, SectionLabel } from "@/components/mobile/primitives";
@@ -143,7 +146,6 @@ function WordDetailPage() {
 /* ---------- Single-meaning fiche (Fiche mot.png) ---------- */
 
 function SingleView({ word, allWords }: { word: Word; allWords: Word[] }) {
-  const rate = successRate(word);
   return (
     <>
       {/* Title */}
@@ -162,17 +164,7 @@ function SingleView({ word, allWords }: { word: Word; allWords: Word[] }) {
       {/* Big translation */}
       <div className="mt-5 text-3xl font-bold">{word.translation}</div>
 
-      {/* Success-rate card */}
-      <Card className="mt-5 flex items-center gap-4">
-        <SuccessRing value={rate} />
-        <div className="min-w-0 flex-1">
-          <div className="text-lg font-bold">Taux de réussite</div>
-          <div className="mt-0.5 text-sm text-muted-foreground">
-            {word.srs.reviews} révision{word.srs.reviews > 1 ? "s" : ""} · mode apprentissage
-          </div>
-        </div>
-        <span className="h-12 w-12 shrink-0 rounded-full bg-primary" />
-      </Card>
+      <KnowledgeCard word={word} />
 
       {/* Examples */}
       {word.examples.length > 0 && (
@@ -261,6 +253,8 @@ function HomonymView({ word, senseCount }: { word: Word; senseCount: number }) {
         <div className="mt-2 text-base text-muted-foreground">{word.transcription}</div>
       )}
 
+      <KnowledgeCard word={word} />
+
       {/* Sense cards, cycling pastel colors */}
       <div className="mt-5 space-y-4">
         {senses.map((s, i) => (
@@ -304,6 +298,60 @@ function SenseCard({ sense, index }: { sense: WordMeaning; index: number }) {
         </>
       )}
     </PastelCard>
+  );
+}
+
+/* ---------- Knowledge card: overall ring + per-form bars ---------- */
+
+const FORM_LABELS: Record<WordForm, string> = {
+  comp: "Compréhension",
+  write: "Écriture",
+  draw: "Tracé",
+};
+
+function KnowledgeCard({ word }: { word: Word }) {
+  const score = knowledgeScore(word);
+  const totalReviews = WORD_FORMS.reduce((s, f) => s + word.srs[f].reviews, 0);
+  const totalSuccess = WORD_FORMS.reduce((s, f) => s + word.srs[f].success, 0);
+  // Tracé only applies when the word actually contains hangul.
+  const hasHangul = splitSyllables(word.original).length > 0;
+  const forms: WordForm[] = hasHangul ? ["comp", "write", "draw"] : ["comp", "write"];
+
+  return (
+    <Card className="mt-5">
+      <div className="flex items-center gap-4">
+        <SuccessRing value={score} />
+        <div className="min-w-0 flex-1">
+          <div className="text-lg font-bold">Connaissance</div>
+          <div className="mt-0.5 text-sm text-muted-foreground">
+            {totalReviews === 0
+              ? "Pas encore travaillé en mode apprentissage"
+              : `${totalReviews} révision${totalReviews > 1 ? "s" : ""} · ${totalSuccess}/${totalReviews} réussies`}
+          </div>
+        </div>
+      </div>
+      <div className="mt-5 space-y-2.5">
+        {forms.map((key) => {
+          const srs = word.srs[key];
+          const reviewed = srs.reviews > 0;
+          const rate = reviewed ? Math.round((srs.success / srs.reviews) * 100) : 0;
+          return (
+            <div key={key} className="flex items-center gap-3">
+              <span className="w-28 shrink-0 text-sm font-semibold">{FORM_LABELS[key]}</span>
+              <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-muted">
+                <div
+                  className="h-full rounded-full bg-primary transition-all"
+                  style={{ width: reviewed ? `${rate}%` : "0%" }}
+                />
+              </div>
+              <span className="w-10 shrink-0 text-right text-sm font-semibold text-muted-foreground">
+                {reviewed ? `${rate}%` : "—"}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+    </Card>
   );
 }
 

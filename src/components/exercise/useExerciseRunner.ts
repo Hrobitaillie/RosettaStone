@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useState } from "react";
-import type { SessionMistake } from "@/lib/db";
+import type { SessionMistake, WordForm } from "@/lib/db";
 
 /**
  * Generic per-question item the runner can play. Each exercise type maps its
@@ -10,6 +10,8 @@ export type RunnerItem = {
   id: string;
   /** "word" → gradeWord, "verb" → gradeVerb. */
   kind: "word" | "verb";
+  /** Which form the question tests — only set for word items. */
+  form?: WordForm;
   /** Used for the session mistake list + "À revoir". */
   original: string;
   translation: string;

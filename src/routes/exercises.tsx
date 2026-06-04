@@ -7,19 +7,18 @@ import {
 } from "@tanstack/react-router";
 import {
   GraduationCap,
-  Layers,
   Languages,
   ListChecks,
+  PenTool,
   Repeat,
   Shuffle,
-  SpellCheck,
 } from "lucide-react";
 import type { ReactNode } from "react";
 import { Screen } from "@/components/mobile/Screen";
 import { PastelCard } from "@/components/mobile/primitives";
 import { useSelectedLanguage } from "@/components/mobile/LanguagePicker";
 import { ExerciseEmpty } from "@/components/exercise/ExerciseEmpty";
-import type { ExerciseDirection } from "@/lib/db";
+import type { ExerciseDirection, TracagePromptMode } from "@/lib/db";
 
 export const Route = createFileRoute("/exercises")({
   component: ExercisesLayout,
@@ -35,7 +34,7 @@ function ExercisesLayout() {
   return <ExercisesHub />;
 }
 
-type ExoType = "flashcards" | "traduction" | "qcm" | "conjugaison" | "romanisation" | "mix";
+type ExoType = "traduction" | "qcm" | "conjugaison" | "tracage" | "mix";
 
 function ExercisesHub() {
   const { current, langId } = useSelectedLanguage();
@@ -56,16 +55,19 @@ function ExercisesHub() {
   }
 
   const target = current.name;
+  // Naïve detection: show tracage card whenever the language name looks Korean.
+  const isKorean = /cor|kor|한/i.test(current.name);
 
   const start = (
     type: ExoType,
     count: number,
     dir: ExerciseDirection = "original->translation",
+    extra?: { mode?: TracagePromptMode },
   ) =>
     navigate({
       to: "/exercise/$type",
       params: { type },
-      search: { count, dir },
+      search: { count, dir, ...(extra?.mode ? { mode: extra.mode } : {}) },
     });
 
   return (
@@ -96,13 +98,6 @@ function ExercisesHub() {
           onClick={() => start("mix", 20)}
         />
         <ExoCard
-          tone="bg-noms text-noms-foreground"
-          icon={<Layers className="h-6 w-6" />}
-          title="Flashcards"
-          subtitle="Recto / verso · révision rapide"
-          onClick={() => start("flashcards", 20)}
-        />
-        <ExoCard
           tone="bg-verbes text-verbes-foreground"
           icon={<Languages className="h-6 w-6" />}
           title="Compréhension"
@@ -130,13 +125,15 @@ function ExercisesHub() {
           subtitle="Conjugue le verbe demandé"
           onClick={() => start("conjugaison", 10)}
         />
-        <ExoCard
-          tone="bg-primary text-primary-foreground"
-          icon={<SpellCheck className="h-6 w-6" />}
-          title="Romanisation"
-          subtitle="hakgyo → 학교"
-          onClick={() => start("romanisation", 10)}
-        />
+        {isKorean && (
+          <ExoCard
+            tone="bg-noms text-noms-foreground"
+            icon={<PenTool className="h-6 w-6" />}
+            title="Tracé hangeul"
+            subtitle="Dessine les syllabes une par une"
+            onClick={() => start("tracage", 8, "original->translation", { mode: "mix" })}
+          />
+        )}
       </div>
     </Screen>
   );

@@ -1,5 +1,7 @@
 import { openDB, type DBSchema, type IDBPDatabase } from "idb";
 import { v4 as uuid } from "uuid";
+import { isFullySupported, splitSyllables } from "./hangul";
+import { loadSyllableStrokes } from "./syllableStrokes";
 
 /* ============================================================
  * Types
@@ -33,6 +35,12 @@ export type Srs = {
   last_reviewed: number | null;
 };
 
+/** A word is mastered in three independent forms. Each tracks its own SRS so
+ * being good at compréhension doesn't grant you écriture or tracé. */
+export type WordForm = "comp" | "write" | "draw";
+export const WORD_FORMS: readonly WordForm[] = ["comp", "write", "draw"];
+export type WordSrs = { comp: Srs; write: Srs; draw: Srs };
+
 export type WordExample = { original: string; translation: string };
 
 /** An additional sense for homonyms / multi-meaning words ("2 sens"). */
@@ -59,7 +67,7 @@ export type Word = {
   /** Related word strings (originals), resolved lazily by the UI. */
   related: string[];
   is_favorite: boolean;
-  srs: Srs;
+  srs: WordSrs;
   created_at: number;
 };
 
@@ -92,11 +100,10 @@ export type Note = {
 
 export type ExerciseType =
   | "apprentissage"
-  | "flashcards"
   | "traduction"
   | "qcm"
   | "conjugaison"
-  | "romanisation"
+  | "tracage"
   | "mix"
   | "review";
 
@@ -214,6 +221,26 @@ function freshSrs(): Srs {
   return { reps: 0, reviews: 0, success: 0, ease: 2.5, interval: 0, due: null, last_reviewed: null };
 }
 
+function freshWordSrs(): WordSrs {
+  return { comp: freshSrs(), write: freshSrs(), draw: freshSrs() };
+}
+
+/** Migrate a legacy single-Srs to the three-form structure. */
+function normWordSrs(s: unknown): WordSrs {
+  if (!s || typeof s !== "object") return freshWordSrs();
+  const obj = s as Record<string, unknown>;
+  // Legacy format: { reps, reviews, success, ease, ... } — a single Srs. Promote
+  // it to `comp` (assumes prior reviews were mostly comprehension-style).
+  if (typeof obj.reviews === "number" && obj.comp === undefined) {
+    return { comp: normSrs(obj as Partial<Srs>), write: freshSrs(), draw: freshSrs() };
+  }
+  return {
+    comp: normSrs(obj.comp as Partial<Srs> | undefined),
+    write: normSrs(obj.write as Partial<Srs> | undefined),
+    draw: normSrs(obj.draw as Partial<Srs> | undefined),
+  };
+}
+
 /* ============================================================
  * Normalisation (fill defaults for rows created in older versions)
  * ========================================================== */
@@ -252,7 +279,7 @@ function normWord(w: Word): Word {
     examples: w.examples ?? [],
     related: w.related ?? [],
     is_favorite: !!w.is_favorite,
-    srs: normSrs(w.srs),
+    srs: normWordSrs(w.srs),
   };
 }
 
@@ -441,7 +468,7 @@ export async function upsertWord(input: WordInput): Promise<Word> {
     examples: input.examples ?? [],
     related: input.related ?? [],
     is_favorite: false,
-    srs: freshSrs(),
+    srs: freshWordSrs(),
     created_at: now(),
   };
   await db.add("words", created);
@@ -587,17 +614,81 @@ export async function deleteNote(id: string): Promise<void> {
 
 export type Mastery = "new" | "learning" | "mature" | "mastered";
 
-export function masteryOf(item: { srs: Srs }): Mastery {
-  const { srs } = item;
+function isPlainSrs(s: Srs | WordSrs): s is Srs {
+  return typeof (s as Srs).reviews === "number" && !("comp" in s);
+}
+
+/** A word's "applicable" forms — `draw` is dropped when the language doesn't
+ * use a script that has stroke data (we only ship hangul for now). */
+export function applicableForms(item: { original?: string; srs: Srs | WordSrs }): WordForm[] {
+  if (isPlainSrs(item.srs)) return [];
+  return ["comp", "write", "draw"];
+}
+
+function srsRate(srs: Srs): number {
+  if (!srs.reviews) return 0;
+  return Math.round((srs.success / srs.reviews) * 100);
+}
+
+function srsMastery(srs: Srs): Mastery {
   if (!srs.reviews) return "new";
   if (srs.interval >= 30 && srs.reps >= 4) return "mastered";
   if (srs.interval >= 14) return "mature";
   return "learning";
 }
 
-export function successRate(item: { srs: Srs }): number {
-  if (!item.srs.reviews) return 0;
-  return Math.round((item.srs.success / item.srs.reviews) * 100);
+function srsKnowledge(srs: Srs): number {
+  const { reviews, success, reps, interval } = srs;
+  if (!reviews) return 0;
+  const rate = success / reviews;
+  const confidence = Math.min(1, Math.max(reps / 6, interval / 30));
+  return Math.round(rate * (0.4 + 0.6 * confidence) * 100);
+}
+
+/** Aggregate mastery across forms — the WEAKEST form decides, so a word
+ * isn't "mastered" until every form is. */
+export function masteryOf(item: { srs: Srs | WordSrs }): Mastery {
+  const srs = item.srs;
+  if (isPlainSrs(srs)) return srsMastery(srs);
+  const order: Mastery[] = ["new", "learning", "mature", "mastered"];
+  let worst: Mastery = "mastered";
+  for (const f of WORD_FORMS) {
+    const m = srsMastery(srs[f]);
+    if (order.indexOf(m) < order.indexOf(worst)) worst = m;
+  }
+  return worst;
+}
+
+/** Aggregate success rate. For a Word, averages the reviewed forms; if any
+ * form is unreviewed it's treated as 0 so the score grows as the user
+ * practises more forms. */
+export function successRate(item: { srs: Srs | WordSrs }): number {
+  const srs = item.srs;
+  if (isPlainSrs(srs)) return srsRate(srs);
+  const rates = WORD_FORMS.map((f) => srsRate(srs[f]));
+  return Math.round(rates.reduce((a, b) => a + b, 0) / WORD_FORMS.length);
+}
+
+/** Per-form success rate (Word only). */
+export function formRate(word: Word, form: WordForm): number {
+  return srsRate(word.srs[form]);
+}
+
+/** Per-form mastery (Word only). */
+export function formMastery(word: Word, form: WordForm): Mastery {
+  return srsMastery(word.srs[form]);
+}
+
+/**
+ * Score de connaissance 0-100 dérivé du mode apprentissage / révisions.
+ * Combine le taux de réussite avec la confiance accumulée (reps consécutives
+ * et intervalle SRS). Pour un mot multi-formes, c'est la moyenne des formes.
+ */
+export function knowledgeScore(item: { srs: Srs | WordSrs }): number {
+  const srs = item.srs;
+  if (isPlainSrs(srs)) return srsKnowledge(srs);
+  const scores = WORD_FORMS.map((f) => srsKnowledge(srs[f]));
+  return Math.round(scores.reduce((a, b) => a + b, 0) / WORD_FORMS.length);
 }
 
 /** SM-2-ish update. `correct` true = remembered, false = lapse. */
@@ -628,11 +719,16 @@ export function nextSrs(srs: Srs, correct: boolean): Srs {
   };
 }
 
-export async function gradeWord(id: string, correct: boolean): Promise<Word> {
+export async function gradeWord(id: string, form: WordForm, correct: boolean): Promise<Word> {
   const db = await getDB();
   const existing = await db.get("words", id);
   if (!existing) throw new Error("Mot introuvable");
-  const updated = normWord({ ...existing, srs: nextSrs(normSrs(existing.srs), correct) });
+  const normalised = normWord(existing);
+  const updatedSrs: WordSrs = {
+    ...normalised.srs,
+    [form]: nextSrs(normalised.srs[form], correct),
+  };
+  const updated = { ...normalised, srs: updatedSrs };
   await db.put("words", updated);
   await recordActivity(1);
   return updated;
@@ -658,8 +754,15 @@ export async function getDueCards(languageId: string): Promise<DueBuckets> {
   const learning: Word[] = [];
   const due: Word[] = [];
   for (const w of words) {
-    if (!w.srs.reviews) isNew.push(w);
-    else if (w.srs.due != null && w.srs.due <= ts) {
+    // A word counts as "new" if no form has ever been reviewed.
+    const totalReviews = WORD_FORMS.reduce((s, f) => s + w.srs[f].reviews, 0);
+    if (totalReviews === 0) {
+      isNew.push(w);
+      continue;
+    }
+    // A word is due if ANY form is overdue.
+    const someDue = WORD_FORMS.some((f) => w.srs[f].due != null && w.srs[f].due! <= ts);
+    if (someDue) {
       if (masteryOf(w) === "learning") learning.push(w);
       else due.push(w);
     }
@@ -679,21 +782,29 @@ export async function getMasteryCounts(
 
 /**
  * Ordered review queue: due/lapsed words first (most fragile first),
- * then new words, capped at `limit`.
+ * then new words. If still short of `limit`, top up with the rest of the
+ * dictionary (least-mastered first) so the session always reaches the
+ * requested count when enough words exist.
  */
 export async function buildReviewQueue(languageId: string, limit = 20): Promise<Word[]> {
   const { new: isNew, learning, due } = await getDueCards(languageId);
   const fragileFirst = [...learning, ...due].sort((a, b) => successRate(a) - successRate(b));
-  return [...fragileFirst, ...isNew].slice(0, limit);
+  const queue = [...fragileFirst, ...isNew];
+  if (queue.length >= limit) return queue.slice(0, limit);
+
+  const taken = new Set(queue.map((w) => w.id));
+  const fillers = (await listWords(languageId))
+    .filter((w) => !taken.has(w.id))
+    .sort((a, b) => successRate(a) - successRate(b));
+  return [...queue, ...fillers].slice(0, limit);
 }
 
 /* ============================================================
  * EXERCISES — question builders
  * ========================================================== */
 
-export type ExerciseDirection = "original->translation" | "translation->original" | "romanization->translation";
+export type ExerciseDirection = "original->translation" | "translation->original";
 
-export type Flashcard = { word: Word; front: string; back: string };
 export type TranslationQuestion = {
   word: Word;
   prompt: string;
@@ -708,7 +819,16 @@ export type ConjugationQuestion = {
   answer: string;
   romanization: string | null;
 };
-export type RomanisationQuestion = { word: Word; prompt: string; answer: string };
+export type TracagePromptMode = "fr" | "rom" | "mix";
+export type TracageQuestion = {
+  word: Word;
+  /** What the learner sees (French translation or romanisation). */
+  prompt: string;
+  /** Target hangul. */
+  answer: string;
+  /** Which prompt was actually picked for this question. */
+  picked: "fr" | "rom";
+};
 
 function shuffle<T>(arr: T[]): T[] {
   const a = [...arr];
@@ -724,24 +844,13 @@ async function exercisePool(languageId: string, limit: number): Promise<Word[]> 
   const words = await listWords(languageId);
   if (!words.length) return [];
   const ranked = [...words].sort((a, b) => {
-    const ar = a.srs.reviews ? successRate(a) : 50;
-    const br = b.srs.reviews ? successRate(b) : 50;
+    const aReviewed = WORD_FORMS.some((f) => a.srs[f].reviews > 0);
+    const bReviewed = WORD_FORMS.some((f) => b.srs[f].reviews > 0);
+    const ar = aReviewed ? successRate(a) : 50;
+    const br = bReviewed ? successRate(b) : 50;
     return ar - br;
   });
   return shuffle(ranked.slice(0, Math.max(limit, Math.min(words.length, limit * 2)))).slice(0, limit);
-}
-
-export async function buildFlashcards(
-  languageId: string,
-  limit = 20,
-  direction: ExerciseDirection = "original->translation",
-): Promise<Flashcard[]> {
-  const pool = await exercisePool(languageId, limit);
-  return pool.map((word) => ({
-    word,
-    front: direction === "translation->original" ? word.translation : word.original,
-    back: direction === "translation->original" ? word.original : word.translation,
-  }));
 }
 
 export async function buildTranslation(
@@ -793,13 +902,26 @@ export async function buildConjugation(languageId: string, limit = 10): Promise<
   return out;
 }
 
-export async function buildRomanisation(languageId: string, limit = 10): Promise<RomanisationQuestion[]> {
-  const pool = (await exercisePool(languageId, limit * 2)).filter((w) => w.transcription);
-  return pool.slice(0, limit).map((word) => ({
-    word,
-    prompt: word.transcription as string,
-    answer: word.translation,
-  }));
+export async function buildTracage(
+  languageId: string,
+  limit = 8,
+  mode: TracagePromptMode = "mix",
+): Promise<TracageQuestion[]> {
+  await loadSyllableStrokes(); // ensure catalogue is loaded so isFullySupported is accurate
+  const pool = (await exercisePool(languageId, limit * 3)).filter(
+    (w) => splitSyllables(w.original).length > 0 && isFullySupported(w.original),
+  );
+  const out: TracageQuestion[] = [];
+  for (const word of pool) {
+    const wantRom =
+      mode === "rom" || (mode === "mix" && Math.random() < 0.5 && !!word.transcription);
+    const picked: "fr" | "rom" = wantRom && word.transcription ? "rom" : "fr";
+    const prompt = picked === "rom" ? (word.transcription as string) : word.translation;
+    if (!prompt) continue;
+    out.push({ word, prompt, answer: word.original, picked });
+    if (out.length >= limit) break;
+  }
+  return out;
 }
 
 /** Lenient answer comparison for typed exercises. */
@@ -1059,8 +1181,10 @@ export async function getStats(languageId?: string): Promise<Stats> {
   let reviews = 0;
   let success = 0;
   for (const w of words) {
-    reviews += w.srs.reviews;
-    success += w.srs.success;
+    for (const f of WORD_FORMS) {
+      reviews += w.srs[f].reviews;
+      success += w.srs[f].success;
+    }
   }
   for (const v of verbs) {
     reviews += v.srs.reviews;

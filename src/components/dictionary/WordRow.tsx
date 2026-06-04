@@ -1,7 +1,7 @@
 import { Link } from "@tanstack/react-router";
 import { categoryKeyOf, type CategoryKey } from "@/lib/categories";
 import { cn } from "@/lib/utils";
-import type { Word } from "@/lib/db";
+import { knowledgeScore, WORD_FORMS, type Word } from "@/lib/db";
 
 const CATEGORY_LABEL: Record<CategoryKey, string> = {
   noms: "NOM",
@@ -23,6 +23,8 @@ function categoryLabel(category: string | null | undefined): string {
  */
 export function WordRow({ word, className }: { word: Word; className?: string }) {
   const senses = word.meanings.length + 1;
+  const score = knowledgeScore(word);
+  const reviewed = WORD_FORMS.some((f) => word.srs[f].reviews > 0);
   return (
     <Link
       to="/word/$id"
@@ -44,10 +46,39 @@ export function WordRow({ word, className }: { word: Word; className?: string })
             </span>
           )}
         </div>
-        <div className="mt-0.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70">
-          {categoryLabel(word.category)}
+        <div className="mt-0.5 flex items-center gap-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70">
+          <span>{categoryLabel(word.category)}</span>
+          <span aria-hidden className="text-muted-foreground/40">·</span>
+          <KnowledgeBadge score={score} reviewed={reviewed} />
         </div>
       </div>
     </Link>
+  );
+}
+
+function KnowledgeBadge({ score, reviewed }: { score: number; reviewed: boolean }) {
+  if (!reviewed) {
+    return (
+      <span
+        className="rounded-full bg-muted px-1.5 py-0.5 text-muted-foreground/70"
+        title="Pas encore travaillé en mode apprentissage"
+      >
+        —
+      </span>
+    );
+  }
+  const tone =
+    score >= 80
+      ? "bg-srs-mastered/15 text-srs-mastered"
+      : score >= 50
+        ? "bg-expressions-bar/15 text-expressions-bar"
+        : "bg-destructive/15 text-destructive";
+  return (
+    <span
+      className={cn("rounded-full px-1.5 py-0.5 tabular-nums", tone)}
+      title={`Score de connaissance — ${score}%`}
+    >
+      {score}%
+    </span>
   );
 }
