@@ -2,13 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { Eye, EyeOff, Undo2 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import {
-  SNAP_THRESHOLD,
-  splitSyllables,
-  strokeScore,
-  type Point,
-  type Stroke,
-} from "@/lib/hangul";
+import { SNAP_THRESHOLD, splitSyllables, strokeScore, type Point, type Stroke } from "@/lib/hangul";
 import {
   drawSyllableStroke,
   getSyllablePaths,
@@ -54,6 +48,8 @@ export function TracageView({
   answer,
   onSubmit,
   locked,
+  ghostDefault = false,
+  hideGhostToggle = false,
 }: {
   label: string;
   /** Question prompt — FR word or romanisation. */
@@ -63,6 +59,10 @@ export function TracageView({
   /** Auto-fired once every expected stroke has been traced. */
   onSubmit: (isCorrect: boolean) => void;
   locked: boolean;
+  /** Apprentissage stage 0 (copie) → start with the model visible. */
+  ghostDefault?: boolean;
+  /** Apprentissage stage 3 (production libre) → hide the toggle entirely. */
+  hideGhostToggle?: boolean;
 }) {
   // Make sure the catalogue is loaded; rebuild results once it lands.
   const [dataReady, setDataReady] = useState(() => getSyllablePaths("오") != null);
@@ -82,14 +82,14 @@ export function TracageView({
     syllables.map((s) => makeResult(s)),
   );
   const [currentIdx, setCurrentIdx] = useState(0);
-  const [ghost, setGhost] = useState(false);
+  const [ghost, setGhost] = useState(ghostDefault);
 
   // Reset state when the question or data changes.
   useEffect(() => {
     setResults(syllables.map((s) => makeResult(s)));
     setCurrentIdx(0);
-    setGhost(false);
-  }, [answer, syllables, dataReady]);
+    setGhost(ghostDefault);
+  }, [answer, syllables, dataReady, ghostDefault]);
 
   const currentSyl = syllables[currentIdx];
   const currentRes = results[currentIdx];
@@ -151,9 +151,11 @@ export function TracageView({
     if (locked) return;
     if (currentIdx < syllables.length - 1) {
       setCurrentIdx((i) => i + 1);
-      setGhost(false);
+      // In copy mode (stage 0 découverte) the ghost must stay on for every
+      // syllable — the user is supposed to copy, not recall.
+      setGhost(ghostDefault);
     }
-  }, [locked, currentIdx, syllables.length]);
+  }, [locked, currentIdx, syllables.length, ghostDefault]);
 
   // Auto-advance briefly after the last expected stroke matches.
   useEffect(() => {
@@ -162,42 +164,85 @@ export function TracageView({
     return () => clearTimeout(t);
   }, [locked, syllableComplete, isLast, advance]);
 
-
   return (
     <div className="flex h-full flex-col">
       <div className="pt-6 text-sm font-bold uppercase tracking-wider text-muted-foreground">
         {label}
       </div>
 
-      <div className="mt-3 flex min-h-[6rem] items-center justify-center rounded-3xl bg-noms px-6 py-5 text-center">
-        <span className="text-4xl font-extrabold text-noms-foreground">{prompt}</span>
-      </div>
-
-      {/* Progress: the word forming. Thin underline for syllables not yet completed. */}
-      <div className="mt-4 flex items-end justify-center text-5xl font-extrabold leading-none tracking-tight">
-        {syllables.map((s, i) => {
-          const r = results[i];
-          const matched = r.drawn.length;
-          const total = r.expected?.length ?? 0;
-          const done = total > 0 && matched >= total;
-          const cur = i === currentIdx && !locked;
-          return done ? (
-            <span key={`syl-${i}`} className="text-foreground">
-              {s}
-            </span>
-          ) : (
-            <span
-              key={`syl-${i}`}
-              className={cn(
-                "inline-flex h-[1em] items-end justify-center px-[0.06em]",
-                cur ? "text-primary" : "text-muted-foreground/40",
-              )}
-            >
-              <span className="mb-[0.16em] h-[3px] w-[0.55em] rounded-full bg-current" />
-            </span>
-          );
-        })}
-      </div>
+      {/* Progress: the word forming. In normal mode (production), syllables
+          not yet completed show only as a thin underline so the user has to
+          recall them. In copy mode (ghostDefault, stage 0 découverte) we show
+          the actual hangul faded out — the user is supposed to see what
+          they're copying, not guess it. In copy mode the hangul is the focal
+          point (the thing being learned) and the FR prompt is a subtitle;
+          otherwise the FR prompt is the directive and stays prominent. */}
+      {ghostDefault ? (
+        <>
+          <div className="mt-3 flex items-end justify-center text-6xl font-extrabold leading-none tracking-tight">
+            {syllables.map((s, i) => {
+              // `results` is reset via a post-commit effect; during the
+              // render where `answer` just changed, `results[i]` can be
+              // undefined for new indices. Treat as "not done" until then.
+              const r = results[i];
+              const matched = r?.drawn.length ?? 0;
+              const total = r?.expected?.length ?? 0;
+              const done = total > 0 && matched >= total;
+              const cur = i === currentIdx && !locked;
+              return (
+                <span
+                  key={`syl-${i}`}
+                  className={cn(
+                    done
+                      ? "text-foreground"
+                      : cur
+                        ? "text-primary"
+                        : "text-muted-foreground/40",
+                  )}
+                >
+                  {s}
+                </span>
+              );
+            })}
+          </div>
+          <div className="mt-2 text-center text-base font-medium text-muted-foreground">
+            {prompt}
+          </div>
+        </>
+      ) : (
+        <>
+          <div className="mt-3 flex min-h-[6rem] items-center justify-center rounded-3xl bg-noms px-6 py-5 text-center">
+            <span className="text-4xl font-extrabold text-noms-foreground">{prompt}</span>
+          </div>
+          <div className="mt-4 flex items-end justify-center text-5xl font-extrabold leading-none tracking-tight">
+            {syllables.map((s, i) => {
+              const r = results[i];
+              const matched = r?.drawn.length ?? 0;
+              const total = r?.expected?.length ?? 0;
+              const done = total > 0 && matched >= total;
+              const cur = i === currentIdx && !locked;
+              if (done) {
+                return (
+                  <span key={`syl-${i}`} className="text-foreground">
+                    {s}
+                  </span>
+                );
+              }
+              return (
+                <span
+                  key={`syl-${i}`}
+                  className={cn(
+                    "inline-flex h-[1em] items-end justify-center px-[0.06em]",
+                    cur ? "text-primary" : "text-muted-foreground/40",
+                  )}
+                >
+                  <span className="mb-[0.16em] h-[3px] w-[0.55em] rounded-full bg-current" />
+                </span>
+              );
+            })}
+          </div>
+        </>
+      )}
 
       {/* Drawing canvas centred in the remaining vertical space */}
       {currentRes && (
@@ -223,15 +268,17 @@ export function TracageView({
           <Undo2 className="h-4 w-4" /> Effacer
         </button>
 
-        <button
-          type="button"
-          onClick={() => setGhost((g) => !g)}
-          disabled={locked}
-          className="inline-flex items-center gap-1.5 rounded-full bg-muted px-4 py-2 text-sm font-semibold text-muted-foreground active:scale-95 disabled:opacity-40"
-        >
-          {ghost ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-          {ghost ? "Cacher" : "Modèle"}
-        </button>
+        {!hideGhostToggle && (
+          <button
+            type="button"
+            onClick={() => setGhost((g) => !g)}
+            disabled={locked}
+            className="inline-flex items-center gap-1.5 rounded-full bg-muted px-4 py-2 text-sm font-semibold text-muted-foreground active:scale-95 disabled:opacity-40"
+          >
+            {ghost ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+            {ghost ? "Cacher" : "Modèle"}
+          </button>
+        )}
       </div>
     </div>
   );

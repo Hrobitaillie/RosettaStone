@@ -1,4 +1,6 @@
+import { useRef } from "react";
 import { Link } from "@tanstack/react-router";
+import { Check } from "lucide-react";
 import { categoryKeyOf, type CategoryKey } from "@/lib/categories";
 import { cn } from "@/lib/utils";
 import { knowledgeScore, WORD_FORMS, type Word } from "@/lib/db";
@@ -20,18 +22,45 @@ function categoryLabel(category: string | null | undefined): string {
 /**
  * Flat dictionary list row (matches Dictionnaire.png / Recherche.png):
  * big bold original + muted transcription | translation (+ "n sens" badge) | uppercase category.
+ *
+ * When `selectionMode` is true the row becomes a toggle button (no navigation)
+ * with a checkbox on the left, used by the bulk-reset apprentissage flow.
+ * A long-press on a normal row should call `onLongPress` to enter selection mode.
  */
-export function WordRow({ word, className }: { word: Word; className?: string }) {
+export function WordRow({
+  word,
+  className,
+  selectionMode = false,
+  selected = false,
+  onToggle,
+  onLongPress,
+}: {
+  word: Word;
+  className?: string;
+  selectionMode?: boolean;
+  selected?: boolean;
+  onToggle?: (id: string) => void;
+  onLongPress?: (id: string) => void;
+}) {
   const senses = word.meanings.length + 1;
   const score = knowledgeScore(word);
   const reviewed = WORD_FORMS.some((f) => word.srs[f].reviews > 0);
-  return (
-    <Link
-      to="/word/$id"
-      params={{ id: word.id }}
-      className={cn("flex items-start justify-between gap-4 py-4 active:opacity-70", className)}
-    >
-      <div className="min-w-0">
+
+  const body = (
+    <>
+      {selectionMode && (
+        <span
+          className={cn(
+            "mt-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-full border-2 transition",
+            selected
+              ? "border-primary bg-primary text-primary-foreground"
+              : "border-muted-foreground/40 bg-card text-transparent",
+          )}
+        >
+          <Check className="h-4 w-4" strokeWidth={3} />
+        </span>
+      )}
+      <div className="min-w-0 flex-1">
         <div className="truncate text-2xl font-extrabold leading-tight">{word.original}</div>
         {word.transcription && (
           <div className="mt-0.5 truncate text-sm text-muted-foreground">{word.transcription}</div>
@@ -48,10 +77,97 @@ export function WordRow({ word, className }: { word: Word; className?: string })
         </div>
         <div className="mt-0.5 flex items-center gap-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70">
           <span>{categoryLabel(word.category)}</span>
-          <span aria-hidden className="text-muted-foreground/40">·</span>
+          <span aria-hidden className="text-muted-foreground/40">
+            ·
+          </span>
           <KnowledgeBadge score={score} reviewed={reviewed} />
         </div>
       </div>
+    </>
+  );
+
+  const rootClass = cn(
+    "flex items-start gap-4 py-4 active:opacity-70",
+    selected && "bg-primary/5",
+    className,
+  );
+
+  if (selectionMode) {
+    return (
+      <button
+        type="button"
+        onClick={() => onToggle?.(word.id)}
+        className={cn(rootClass, "w-full text-left")}
+      >
+        {body}
+      </button>
+    );
+  }
+
+  return (
+    <LongPressLink
+      to="/word/$id"
+      params={{ id: word.id }}
+      className={rootClass}
+      onLongPress={onLongPress ? () => onLongPress(word.id) : undefined}
+    >
+      {body}
+    </LongPressLink>
+  );
+}
+
+/* Tiny Link wrapper that fires onLongPress without breaking the navigation. */
+function LongPressLink({
+  to,
+  params,
+  className,
+  onLongPress,
+  children,
+}: {
+  to: "/word/$id";
+  params: { id: string };
+  className?: string;
+  onLongPress?: () => void;
+  children: React.ReactNode;
+}) {
+  const timerRef = useRef<number | null>(null);
+  const triggeredRef = useRef(false);
+
+  if (!onLongPress) {
+    return (
+      <Link to={to} params={params} className={className}>
+        {children}
+      </Link>
+    );
+  }
+
+  const start = () => {
+    triggeredRef.current = false;
+    timerRef.current = window.setTimeout(() => {
+      triggeredRef.current = true;
+      onLongPress();
+    }, 450);
+  };
+  const cancel = () => {
+    if (timerRef.current != null) {
+      clearTimeout(timerRef.current);
+      timerRef.current = null;
+    }
+  };
+  return (
+    <Link
+      to={to}
+      params={params}
+      className={className}
+      onPointerDown={start}
+      onPointerUp={cancel}
+      onPointerLeave={cancel}
+      onPointerCancel={cancel}
+      onClick={(e) => {
+        if (triggeredRef.current) e.preventDefault();
+      }}
+    >
+      {children}
     </Link>
   );
 }

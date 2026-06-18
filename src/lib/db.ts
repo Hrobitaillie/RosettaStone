@@ -68,7 +68,28 @@ export type Word = {
   related: string[];
   is_favorite: boolean;
   srs: WordSrs;
+  /** Progressive learning stage (0..5).
+   *  0 = découverte / copie · 1 = complétion · 2 = production assistée
+   *  3 = production libre · 4 = reconnaissance inverse · 5 = diplômé (file SRS normale). */
+  learnStage: LearnStage;
+  /** Timestamp of the last apprentissage rep (any stage). Used to trigger
+   *  warmups when the user returns after several days. */
+  lastLearnAt: number | null;
   created_at: number;
+};
+
+export type LearnStage = 0 | 1 | 2 | 3 | 4 | 5;
+export const LEARN_STAGES: readonly LearnStage[] = [0, 1, 2, 3, 4, 5];
+export const LEARN_GRADUATED: LearnStage = 5;
+
+/** Reps required to advance past each stage. Stage 5 = no reps (already done). */
+export const LEARN_REPS_PER_STAGE: Record<LearnStage, number> = {
+  0: 4,
+  1: 4,
+  2: 3,
+  3: 2,
+  4: 2,
+  5: 0,
 };
 
 export type Conjugation = { form_name: string; form_value: string; romanization?: string | null };
@@ -218,7 +239,15 @@ export function dayKey(ts: number = Date.now()): string {
 }
 
 function freshSrs(): Srs {
-  return { reps: 0, reviews: 0, success: 0, ease: 2.5, interval: 0, due: null, last_reviewed: null };
+  return {
+    reps: 0,
+    reviews: 0,
+    success: 0,
+    ease: 2.5,
+    interval: 0,
+    due: null,
+    last_reviewed: null,
+  };
 }
 
 function freshWordSrs(): WordSrs {
@@ -269,6 +298,7 @@ function normLanguage(l: Language): Language {
 }
 
 function normWord(w: Word): Word {
+  const srs = normWordSrs(w.srs);
   return {
     ...w,
     transcription: w.transcription ?? null,
@@ -279,8 +309,21 @@ function normWord(w: Word): Word {
     examples: w.examples ?? [],
     related: w.related ?? [],
     is_favorite: !!w.is_favorite,
-    srs: normWordSrs(w.srs),
+    srs,
+    learnStage: deriveLearnStage(w, srs),
+    lastLearnAt: w.lastLearnAt ?? null,
   };
+}
+
+/** Default learn stage for legacy rows: words already practised graduate to
+ *  the SRS file (5) so the progressive mode doesn't drag them back; truly new
+ *  words start at 0 so they enter the découverte → reconnaissance loop. */
+function deriveLearnStage(w: Word, srs: WordSrs): LearnStage {
+  if (w.learnStage != null && w.learnStage >= 0 && w.learnStage <= 5) {
+    return w.learnStage as LearnStage;
+  }
+  const reviewed = WORD_FORMS.some((f) => srs[f].reviews > 0);
+  return reviewed ? LEARN_GRADUATED : 0;
 }
 
 function normVerb(v: Verb): Verb {
@@ -385,7 +428,9 @@ export async function getLanguageProgress(id: string): Promise<LanguageProgress>
     db.getAllFromIndex("notes", "by-lang", id),
   ]);
   const normed = words.map(normWord);
-  const mastered = normed.filter((w) => masteryOf(w) === "mastered" || masteryOf(w) === "mature").length;
+  const mastered = normed.filter(
+    (w) => masteryOf(w) === "mastered" || masteryOf(w) === "mature",
+  ).length;
   const percent = normed.length ? Math.round((mastered / normed.length) * 100) : 0;
   return { words: normed.length, verbs: verbs.length, notes: notes.length, mastered, percent };
 }
@@ -411,7 +456,14 @@ export async function searchWords(languageId: string, q: string): Promise<Word[]
   const term = q.trim().toLowerCase();
   if (!term) return rows;
   return rows.filter((w) =>
-    [w.original, w.transcription, w.translation, w.category, w.notes, ...w.meanings.map((m) => m.translation)]
+    [
+      w.original,
+      w.transcription,
+      w.translation,
+      w.category,
+      w.notes,
+      ...w.meanings.map((m) => m.translation),
+    ]
       .filter(Boolean)
       .some((v) => (v as string).toLowerCase().includes(term)),
   );
@@ -424,7 +476,10 @@ export async function findDuplicates(languageId: string, original: string): Prom
   return rows.filter((w) => w.original.trim().toLowerCase() === target);
 }
 
-export async function findWordByOriginal(languageId: string, original: string): Promise<Word | null> {
+export async function findWordByOriginal(
+  languageId: string,
+  original: string,
+): Promise<Word | null> {
   const rows = await findDuplicates(languageId, original);
   return rows[0] ?? null;
 }
@@ -469,6 +524,8 @@ export async function upsertWord(input: WordInput): Promise<Word> {
     related: input.related ?? [],
     is_favorite: false,
     srs: freshWordSrs(),
+    learnStage: 0,
+    lastLearnAt: null,
     created_at: now(),
   };
   await db.add("words", created);
@@ -719,6 +776,58 @@ export function nextSrs(srs: Srs, correct: boolean): Srs {
   };
 }
 
+/* ============================================================
+ * PROGRESSIVE LEARNING (per-word stage 0..5)
+ * ========================================================== */
+
+/** Set a word's learn stage (clamped to 0..5) and bump lastLearnAt. */
+export async function setLearnStage(id: string, stage: LearnStage): Promise<Word> {
+  const db = await getDB();
+  const existing = await db.get("words", id);
+  if (!existing) throw new Error("Mot introuvable");
+  const normalised = normWord(existing);
+  const clamped = Math.max(0, Math.min(5, stage)) as LearnStage;
+  const updated: Word = { ...normalised, learnStage: clamped, lastLearnAt: Date.now() };
+  await db.put("words", updated);
+  return updated;
+}
+
+/** Reset a single word back to the very start of the progression. */
+export async function resetLearnStage(id: string): Promise<Word> {
+  const db = await getDB();
+  const existing = await db.get("words", id);
+  if (!existing) throw new Error("Mot introuvable");
+  const updated: Word = { ...normWord(existing), learnStage: 0, lastLearnAt: null };
+  await db.put("words", updated);
+  return updated;
+}
+
+/** Reset many words at once (used by the dictionary multi-select). */
+export async function bulkResetLearnStage(ids: string[]): Promise<number> {
+  if (!ids.length) return 0;
+  const db = await getDB();
+  const tx = db.transaction("words", "readwrite");
+  let n = 0;
+  for (const id of ids) {
+    const existing = await tx.store.get(id);
+    if (!existing) continue;
+    const updated: Word = { ...normWord(existing), learnStage: 0, lastLearnAt: null };
+    await tx.store.put(updated);
+    n++;
+  }
+  await tx.done;
+  return n;
+}
+
+/** Bump lastLearnAt without changing stage — used after each rep within a session. */
+export async function touchLearn(id: string): Promise<void> {
+  const db = await getDB();
+  const existing = await db.get("words", id);
+  if (!existing) return;
+  const updated: Word = { ...normWord(existing), lastLearnAt: Date.now() };
+  await db.put("words", updated);
+}
+
 export async function gradeWord(id: string, form: WordForm, correct: boolean): Promise<Word> {
   const db = await getDB();
   const existing = await db.get("words", id);
@@ -850,7 +959,10 @@ async function exercisePool(languageId: string, limit: number): Promise<Word[]> 
     const br = bReviewed ? successRate(b) : 50;
     return ar - br;
   });
-  return shuffle(ranked.slice(0, Math.max(limit, Math.min(words.length, limit * 2)))).slice(0, limit);
+  return shuffle(ranked.slice(0, Math.max(limit, Math.min(words.length, limit * 2)))).slice(
+    0,
+    limit,
+  );
 }
 
 export async function buildTranslation(
@@ -871,9 +983,11 @@ export async function buildQcm(languageId: string, limit = 10): Promise<QcmQuest
   const all = await listWords(languageId);
   const pool = await exercisePool(languageId, limit);
   return pool.map((word) => {
-    const sameCat = all.filter((w) => w.id !== word.id && w.category === word.category && w.translation);
+    const sameCat = all.filter(
+      (w) => w.id !== word.id && w.category === word.category && w.translation,
+    );
     const others = all.filter((w) => w.id !== word.id && w.translation !== word.translation);
-    const distractPool = (sameCat.length >= 3 ? sameCat : others);
+    const distractPool = sameCat.length >= 3 ? sameCat : others;
     const distractors = shuffle(distractPool)
       .map((w) => w.translation)
       .filter((t, i, a) => a.indexOf(t) === i && t !== word.translation)
@@ -883,7 +997,10 @@ export async function buildQcm(languageId: string, limit = 10): Promise<QcmQuest
   });
 }
 
-export async function buildConjugation(languageId: string, limit = 10): Promise<ConjugationQuestion[]> {
+export async function buildConjugation(
+  languageId: string,
+  limit = 10,
+): Promise<ConjugationQuestion[]> {
   const verbs = await listVerbs(languageId);
   const withForms = verbs.filter((v) => v.conjugations.some((c) => c.form_value.trim()));
   const out: ConjugationQuestion[] = [];
@@ -1031,9 +1148,7 @@ export async function updateLangSettings(
   return next;
 }
 
-export async function addSession(
-  input: Omit<Session, "id" | "created_at">,
-): Promise<Session> {
+export async function addSession(input: Omit<Session, "id" | "created_at">): Promise<Session> {
   const db = await getDB();
   const session: Session = { ...input, id: newId(), created_at: now() };
   await db.add("sessions", session);
@@ -1193,7 +1308,13 @@ export async function getStats(languageId?: string): Promise<Stats> {
   const successRateValue = reviews ? Math.round((success / reviews) * 100) : 0;
 
   // Category breakdown — verbs counted under "verbes".
-  const counts: Record<string, number> = { noms: 0, verbes: 0, adjectifs: 0, expressions: 0, autres: 0 };
+  const counts: Record<string, number> = {
+    noms: 0,
+    verbes: 0,
+    adjectifs: 0,
+    expressions: 0,
+    autres: 0,
+  };
   for (const w of words) counts[categoryKey(w.category)]++;
   counts.verbes += verbs.length;
   const order = ["noms", "verbes", "adjectifs", "expressions", "autres"];
@@ -1245,7 +1366,17 @@ export async function exportAll(): Promise<string> {
     getProfile(),
   ]);
   return JSON.stringify(
-    { version: DB_VERSION, exported_at: new Date().toISOString(), languages, words, verbs, notes, sessions, settings, profile },
+    {
+      version: DB_VERSION,
+      exported_at: new Date().toISOString(),
+      languages,
+      words,
+      verbs,
+      notes,
+      sessions,
+      settings,
+      profile,
+    },
     null,
     2,
   );
@@ -1254,7 +1385,10 @@ export async function exportAll(): Promise<string> {
 export async function importAll(json: string, mode: "merge" | "replace" = "merge"): Promise<void> {
   const data = JSON.parse(json);
   const db = await getDB();
-  const tx = db.transaction(["languages", "words", "verbs", "notes", "sessions", "meta"], "readwrite");
+  const tx = db.transaction(
+    ["languages", "words", "verbs", "notes", "sessions", "meta"],
+    "readwrite",
+  );
   if (mode === "replace") {
     await Promise.all([
       tx.objectStore("languages").clear(),
@@ -1276,7 +1410,10 @@ export async function importAll(json: string, mode: "merge" | "replace" = "merge
 
 export async function clearAll(): Promise<void> {
   const db = await getDB();
-  const tx = db.transaction(["languages", "words", "verbs", "notes", "sessions", "meta"], "readwrite");
+  const tx = db.transaction(
+    ["languages", "words", "verbs", "notes", "sessions", "meta"],
+    "readwrite",
+  );
   await Promise.all([
     tx.objectStore("languages").clear(),
     tx.objectStore("words").clear(),
