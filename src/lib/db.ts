@@ -75,6 +75,10 @@ export type Word = {
   /** Timestamp of the last apprentissage rep (any stage). Used to trigger
    *  warmups when the user returns after several days. */
   lastLearnAt: number | null;
+  /** Day keys (YYYY-MM-DD) on which a perfect (0-error) session was completed
+   *  at the CURRENT learnStage. Cleared whenever the stage changes. The word
+   *  graduates when this set reaches LEARN_DAYS_PER_STAGE distinct entries. */
+  learnStageSuccessDays: string[];
   created_at: number;
 };
 
@@ -91,6 +95,9 @@ export const LEARN_REPS_PER_STAGE: Record<LearnStage, number> = {
   4: 2,
   5: 0,
 };
+
+/** Distinct perfect days required to advance past each stage. */
+export const LEARN_DAYS_PER_STAGE = 4;
 
 export type Conjugation = { form_name: string; form_value: string; romanization?: string | null };
 
@@ -312,6 +319,9 @@ function normWord(w: Word): Word {
     srs,
     learnStage: deriveLearnStage(w, srs),
     lastLearnAt: w.lastLearnAt ?? null,
+    learnStageSuccessDays: Array.isArray(w.learnStageSuccessDays)
+      ? w.learnStageSuccessDays.filter((d) => typeof d === "string")
+      : [],
   };
 }
 
@@ -526,6 +536,7 @@ export async function upsertWord(input: WordInput): Promise<Word> {
     srs: freshWordSrs(),
     learnStage: 0,
     lastLearnAt: null,
+    learnStageSuccessDays: [],
     created_at: now(),
   };
   await db.add("words", created);
@@ -780,14 +791,39 @@ export function nextSrs(srs: Srs, correct: boolean): Srs {
  * PROGRESSIVE LEARNING (per-word stage 0..5)
  * ========================================================== */
 
-/** Set a word's learn stage (clamped to 0..5) and bump lastLearnAt. */
+/** Set a word's learn stage (clamped to 0..5) and bump lastLearnAt. Clears the
+ *  per-stage perfect-day log whenever the stage actually changes — each new
+ *  stage must be earned over LEARN_DAYS_PER_STAGE fresh days. */
 export async function setLearnStage(id: string, stage: LearnStage): Promise<Word> {
   const db = await getDB();
   const existing = await db.get("words", id);
   if (!existing) throw new Error("Mot introuvable");
   const normalised = normWord(existing);
   const clamped = Math.max(0, Math.min(5, stage)) as LearnStage;
-  const updated: Word = { ...normalised, learnStage: clamped, lastLearnAt: Date.now() };
+  const updated: Word = {
+    ...normalised,
+    learnStage: clamped,
+    lastLearnAt: Date.now(),
+    learnStageSuccessDays: clamped === normalised.learnStage ? normalised.learnStageSuccessDays : [],
+  };
+  await db.put("words", updated);
+  return updated;
+}
+
+/** Mark today as a perfect-session day for this word at its current stage.
+ *  No-op if today is already logged. Returns the updated word so the caller
+ *  can read the new day count. */
+export async function recordLearnPerfectDay(id: string, day: string = dayKey()): Promise<Word> {
+  const db = await getDB();
+  const existing = await db.get("words", id);
+  if (!existing) throw new Error("Mot introuvable");
+  const normalised = normWord(existing);
+  if (normalised.learnStageSuccessDays.includes(day)) return normalised;
+  const updated: Word = {
+    ...normalised,
+    learnStageSuccessDays: [...normalised.learnStageSuccessDays, day],
+    lastLearnAt: Date.now(),
+  };
   await db.put("words", updated);
   return updated;
 }
@@ -797,7 +833,12 @@ export async function resetLearnStage(id: string): Promise<Word> {
   const db = await getDB();
   const existing = await db.get("words", id);
   if (!existing) throw new Error("Mot introuvable");
-  const updated: Word = { ...normWord(existing), learnStage: 0, lastLearnAt: null };
+  const updated: Word = {
+    ...normWord(existing),
+    learnStage: 0,
+    lastLearnAt: null,
+    learnStageSuccessDays: [],
+  };
   await db.put("words", updated);
   return updated;
 }
@@ -811,7 +852,12 @@ export async function bulkResetLearnStage(ids: string[]): Promise<number> {
   for (const id of ids) {
     const existing = await tx.store.get(id);
     if (!existing) continue;
-    const updated: Word = { ...normWord(existing), learnStage: 0, lastLearnAt: null };
+    const updated: Word = {
+      ...normWord(existing),
+      learnStage: 0,
+      lastLearnAt: null,
+      learnStageSuccessDays: [],
+    };
     await tx.store.put(updated);
     n++;
   }

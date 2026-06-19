@@ -1,4 +1,4 @@
-import { ArrowDownRight, ArrowUpRight, GraduationCap, Minus } from "lucide-react";
+import { ArrowUpRight, CalendarCheck, GraduationCap, Minus } from "lucide-react";
 import { BigButton, PastelCard, SectionLabel } from "@/components/mobile/primitives";
 import { cn } from "@/lib/utils";
 
@@ -12,6 +12,14 @@ export type LearnWordOutcome = {
   toStage: number;
   correct: number;
   total: number;
+  /** Distinct perfect days banked before this session. */
+  daysBefore: number;
+  /** Distinct perfect days banked after this session (reset to 0 on advance). */
+  daysAfter: number;
+  /** Days required to advance past the stage. */
+  daysGoal: number;
+  /** True if the user made no mistakes this session — the day was banked. */
+  perfect: boolean;
 };
 
 const STAGE_LABEL = [
@@ -37,8 +45,8 @@ export function LearnResultScreen({
   onFinish: () => void;
 }) {
   const advanced = outcomes.filter((o) => o.toStage > o.fromStage);
-  const held = outcomes.filter((o) => o.toStage === o.fromStage);
-  const demoted = outcomes.filter((o) => o.toStage < o.fromStage);
+  const banked = outcomes.filter((o) => o.perfect && o.toStage === o.fromStage);
+  const missed = outcomes.filter((o) => !o.perfect);
   const graduated = outcomes.filter((o) => o.toStage === 5 && o.fromStage < 5);
 
   return (
@@ -51,7 +59,9 @@ export function LearnResultScreen({
         <p className="mt-2 text-muted-foreground">
           {advanced.length > 0
             ? `${advanced.length} mot${advanced.length > 1 ? "s" : ""} ${advanced.length > 1 ? "ont" : "a"} progressé.`
-            : "Continue, ça finit par rentrer."}
+            : banked.length > 0
+              ? `Journée validée pour ${banked.length} mot${banked.length > 1 ? "s" : ""}.`
+              : "Aucune journée validée — il faut une session sans erreur."}
         </p>
       </div>
 
@@ -61,8 +71,8 @@ export function LearnResultScreen({
           <div className="mt-1.5 text-sm font-medium">avancé{advanced.length > 1 ? "s" : ""}</div>
         </PastelCard>
         <PastelCard tone="bg-noms text-noms-foreground" className="p-4 text-center">
-          <div className="text-2xl font-extrabold leading-none">{held.length}</div>
-          <div className="mt-1.5 text-sm font-medium">à revoir</div>
+          <div className="text-2xl font-extrabold leading-none">{banked.length}</div>
+          <div className="mt-1.5 text-sm font-medium">jour validé{banked.length > 1 ? "s" : ""}</div>
         </PastelCard>
         <PastelCard tone="bg-adjectifs text-adjectifs-foreground" className="p-4 text-center">
           <div className="text-2xl font-extrabold leading-none">{graduated.length}</div>
@@ -90,10 +100,10 @@ export function LearnResultScreen({
         </BigButton>
       </div>
 
-      {demoted.length > 0 && (
+      {missed.length > 0 && (
         <p className="mt-3 pb-2 text-center text-xs text-muted-foreground">
-          {demoted.length} mot{demoted.length > 1 ? "s sont revenus" : " est revenu"} à un stade
-          précédent.
+          {missed.length} mot{missed.length > 1 ? "s" : ""} avec au moins une erreur — la journée
+          n'est pas comptée.
         </p>
       )}
     </div>
@@ -101,15 +111,27 @@ export function LearnResultScreen({
 }
 
 function OutcomeRow({ outcome }: { outcome: LearnWordOutcome }) {
-  const { fromStage, toStage } = outcome;
-  const direction = toStage > fromStage ? "up" : toStage < fromStage ? "down" : "hold";
-  const Icon = direction === "up" ? ArrowUpRight : direction === "down" ? ArrowDownRight : Minus;
-  const tone =
-    direction === "up"
-      ? "text-srs-mastered bg-srs-mastered/15"
-      : direction === "down"
-        ? "text-destructive bg-destructive/15"
-        : "text-muted-foreground bg-muted";
+  const { fromStage, toStage, perfect, daysAfter, daysGoal } = outcome;
+  const advanced = toStage > fromStage;
+  const Icon = advanced ? ArrowUpRight : perfect ? CalendarCheck : Minus;
+  const tone = advanced
+    ? "text-srs-mastered bg-srs-mastered/15"
+    : perfect
+      ? "text-primary bg-primary/15"
+      : "text-muted-foreground bg-muted";
+
+  const stageLine = advanced ? (
+    <>
+      {STAGE_LABEL[fromStage]} → <span className="text-foreground">{STAGE_LABEL[toStage]}</span>
+    </>
+  ) : (
+    <span>{STAGE_LABEL[fromStage]}</span>
+  );
+
+  // After advancing, daysAfter is reset to 0 — show the goal as the new target.
+  const daysLine = advanced
+    ? `nouveau stage · 0/${daysGoal} jours`
+    : `${daysAfter}/${daysGoal} jours${perfect ? " · +1 aujourd'hui" : ""}`;
 
   return (
     <li className="flex items-center gap-3 rounded-2xl bg-card px-4 py-3.5">
@@ -118,12 +140,8 @@ function OutcomeRow({ outcome }: { outcome: LearnWordOutcome }) {
         <div className="truncate text-sm text-muted-foreground">{outcome.translation}</div>
       </div>
       <div className="shrink-0 text-right">
-        <div className="text-xs font-semibold text-muted-foreground">
-          {STAGE_LABEL[fromStage]} → <span className="text-foreground">{STAGE_LABEL[toStage]}</span>
-        </div>
-        <div className="mt-0.5 text-xs text-muted-foreground/70 tabular-nums">
-          {outcome.correct}/{outcome.total}
-        </div>
+        <div className="text-xs font-semibold text-muted-foreground">{stageLine}</div>
+        <div className="mt-0.5 text-xs text-muted-foreground/70 tabular-nums">{daysLine}</div>
       </div>
       <span className={cn("flex h-8 w-8 items-center justify-center rounded-full", tone)}>
         <Icon className="h-4 w-4" />

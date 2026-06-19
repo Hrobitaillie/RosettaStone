@@ -26,9 +26,11 @@ import {
   gradeWord,
   listWords,
   setLearnStage,
+  recordLearnPerfectDay,
   successRate,
   touchLearn,
   answersMatch,
+  LEARN_DAYS_PER_STAGE,
   LEARN_GRADUATED,
   type ExerciseDirection,
   type ExerciseType,
@@ -978,17 +980,28 @@ function learnRepToQuestion(rep: LearnRep, target: string): Question {
 }
 
 /**
- * Apply stage progression based on per-word success ratio.
- *  - success ≥ 75% → +1 stage (graduate to 5 if was at 4)
- *  - success ≥ 50% → hold (no change)
- *  - success  < 50% → -1 stage (floor 0)
- * Warmup reps are excluded from the count — they're a refresher, not a test.
+ * Apply stage progression based on the multi-day rule:
+ *  - A session counts toward the current stage ONLY if every non-warmup rep
+ *    for the word was answered correctly (0 erreur sur la session).
+ *  - The word advances when it has banked LEARN_DAYS_PER_STAGE distinct
+ *    perfect days at the current stage.
+ *  - Imperfect sessions hold the stage — no demotion — but they don't bank
+ *    today either, so the user has to come back another day to count it.
+ *
+ * Warmup reps are excluded from the perfect-check — they're a refresher.
  */
 async function applyLearnProgress(
   questions: Question[],
   answerLog: boolean[],
 ): Promise<LearnWordOutcome[]> {
-  type Acc = { word: Word; from: LearnStage; correct: number; total: number };
+  type Acc = {
+    word: Word;
+    from: LearnStage;
+    correct: number;
+    total: number;
+    /** Existing perfect-day count BEFORE this session. */
+    daysBefore: number;
+  };
   const byId = new Map<string, Acc>();
 
   for (let i = 0; i < questions.length; i++) {
@@ -1003,7 +1016,13 @@ async function applyLearnProgress(
     const id = rep.word.id;
     let acc = byId.get(id);
     if (!acc) {
-      acc = { word: rep.word, from: rep.stage, correct: 0, total: 0 };
+      acc = {
+        word: rep.word,
+        from: rep.stage,
+        correct: 0,
+        total: 0,
+        daysBefore: rep.word.learnStageSuccessDays.length,
+      };
       byId.set(id, acc);
     }
     acc.total += 1;
@@ -1013,18 +1032,29 @@ async function applyLearnProgress(
   const outcomes: LearnWordOutcome[] = [];
   for (const acc of byId.values()) {
     if (acc.total === 0) continue;
-    const ratio = acc.correct / acc.total;
+    const perfect = acc.correct === acc.total;
     let next: LearnStage = acc.from;
-    if (ratio >= 0.75) {
-      next = Math.min(LEARN_GRADUATED, acc.from + 1) as LearnStage;
-    } else if (ratio < 0.5) {
-      next = Math.max(0, acc.from - 1) as LearnStage;
+    let daysAfter = acc.daysBefore;
+
+    if (perfect && acc.from < LEARN_GRADUATED) {
+      try {
+        const updated = await recordLearnPerfectDay(acc.word.id);
+        daysAfter = updated.learnStageSuccessDays.length;
+      } catch (err) {
+        logSessionError(err, { stage: "recordLearnPerfectDay", id: acc.word.id });
+      }
+      if (daysAfter >= LEARN_DAYS_PER_STAGE) {
+        next = Math.min(LEARN_GRADUATED, acc.from + 1) as LearnStage;
+        try {
+          await setLearnStage(acc.word.id, next);
+          // setLearnStage clears the day log when the stage changes.
+          daysAfter = 0;
+        } catch (err) {
+          logSessionError(err, { stage: "setLearnStage", id: acc.word.id, next });
+        }
+      }
     }
-    try {
-      await setLearnStage(acc.word.id, next);
-    } catch (err) {
-      logSessionError(err, { stage: "setLearnStage", id: acc.word.id, next });
-    }
+
     outcomes.push({
       id: acc.word.id,
       original: acc.word.original,
@@ -1033,6 +1063,10 @@ async function applyLearnProgress(
       toStage: next,
       correct: acc.correct,
       total: acc.total,
+      daysBefore: acc.daysBefore,
+      daysAfter,
+      daysGoal: LEARN_DAYS_PER_STAGE,
+      perfect,
     });
   }
   return outcomes;
